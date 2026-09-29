@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		FB6BE5C630637D0D00261EF4 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = FB6BE5C530637D0D00261EF4 /* GRDB */; };
+		FB55502E306B8DE0000EBD36 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = FB55502D306B8DE0000EBD36 /* GRDB */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -56,7 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				FB6BE5C630637D0D00261EF4 /* GRDB in Frameworks */,
+				FB55502E306B8DE0000EBD36 /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -125,7 +125,7 @@
 			);
 			name = ZXTools;
 			packageProductDependencies = (
-				FB6BE5C530637D0D00261EF4 /* GRDB */,
+				FB55502D306B8DE0000EBD36 /* GRDB */,
 			);
 			productName = ZXTools;
 			productReference = FB6BD34F3063783F00261EF4 /* ZXTools.app */;
@@ -210,7 +210,7 @@
 			mainGroup = FB6BD3463063783F00261EF4;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				FB6BD3B6306378E100261EF4 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+				FB55502C306B8DDA000EBD36 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FB6BD3503063783F00261EF4 /* Products */;
@@ -413,6 +413,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -421,6 +422,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ZX.ZXTools;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -443,6 +445,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -451,6 +454,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ZX.ZXTools;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -582,7 +586,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		FB6BD3B6306378E100261EF4 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+		FB55502C306B8DDA000EBD36 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/groue/GRDB.swift.git";
 			requirement = {
@@ -593,9 +597,9 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		FB6BE5C530637D0D00261EF4 /* GRDB */ = {
+		FB55502D306B8DE0000EBD36 /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = FB6BD3B6306378E100261EF4 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			package = FB55502C306B8DDA000EBD36 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
 			productName = GRDB;
 		};
 /* End XCSwiftPackageProductDependency section */

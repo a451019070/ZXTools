@@ -19,6 +19,7 @@ struct JSONNodeView: View {
     let depth: Int
     let path: String
     let hasComma: Bool
+    let arrayIndex: Int?
     @Binding var expansions: [String: Bool]
 
     var body: some View {
@@ -36,7 +37,15 @@ struct JSONNodeView: View {
                 children: AnyView(arrayChildren(items: items))
             )
         case .string(let s):
-            leafRow(content: AnyView(Text("\"\(s)\"").foregroundStyle(.red)))
+            if isImageURLString(s) {
+                leafRow(content: AnyView(ImageLeaf(urlString: s, hasComma: hasComma)),
+                        showComma: false)
+            } else {
+                leafRow(content: AnyView(Text("\"\(s)\"")
+                    .foregroundStyle(Color.slate700)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)))
+            }
         case .number(let n):
             leafRow(content: AnyView(Text(formatNumber(n)).foregroundStyle(.green)))
         case .bool(let b):
@@ -61,6 +70,7 @@ struct JSONNodeView: View {
                                  depth: depth + 1,
                                  path: "\(path).o\(idx)",
                                  hasComma: idx < pairs.count - 1,
+                                 arrayIndex: nil,
                                  expansions: $expansions)
                 }
             }
@@ -81,6 +91,7 @@ struct JSONNodeView: View {
                                  depth: depth + 1,
                                  path: "\(path).a\(idx)",
                                  hasComma: idx < items.count - 1,
+                                 arrayIndex: idx,
                                  expansions: $expansions)
                 }
             }
@@ -94,7 +105,7 @@ struct JSONNodeView: View {
         let closeBracket = type == "array" ? "]" : "}"
 
         return AnyView(
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 4) {
                     Button {
                         expansions[path] = !isOpen
@@ -107,6 +118,11 @@ struct JSONNodeView: View {
                     }
                     .buttonStyle(.plain)
 
+                    if let arrayIndex {
+                        Text("\(arrayIndex):")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Color.slate500)
+                    }
                     if let label {
                         Text("\"\(label)\"")
                             .font(.system(size: 12, design: .monospaced))
@@ -133,7 +149,7 @@ struct JSONNodeView: View {
                     }
                 }
                 if isOpen {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 7) {
                         children
                     }
                     .padding(.leading, 18)
@@ -152,10 +168,17 @@ struct JSONNodeView: View {
         )
     }
 
-    private func leafRow(content: AnyView) -> AnyView {
+    private func leafRow(content: AnyView, showComma: Bool = true) -> AnyView {
         AnyView(
-            HStack(spacing: 4) {
-                Spacer().frame(width: 16)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                if let arrayIndex {
+                    Text("\(arrayIndex):")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color.slate500)
+                        .frame(minWidth: 16, alignment: .trailing)
+                } else {
+                    Spacer().frame(width: 16)
+                }
                 if let label {
                     Text("\"\(label)\"")
                         .font(.system(size: 12, design: .monospaced))
@@ -165,7 +188,7 @@ struct JSONNodeView: View {
                         .foregroundStyle(Color.slate500)
                 }
                 content
-                if hasComma {
+                if hasComma && showComma {
                     Text(",")
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(Color.slate500)
@@ -479,8 +502,8 @@ struct JSONParserView: View {
             .padding(.vertical, 8)
             .background(Color.slate50)
 
-            ScrollView {
-                ScrollViewReader { proxy in
+            GeometryReader { proxy in
+                ScrollView(.vertical) {
                     VStack(alignment: .leading) {
                         if let tree = viewModel.tree {
                             JSONNodeView(label: nil,
@@ -488,6 +511,7 @@ struct JSONParserView: View {
                                          depth: 0,
                                          path: "root",
                                          hasComma: false,
+                                         arrayIndex: nil,
                                          expansions: $viewModel.expansions)
                                 .textSelection(.enabled)
                                 .padding(12)
@@ -504,12 +528,10 @@ struct JSONParserView: View {
                             .padding(.vertical, 60)
                         }
                     }
-                    .id(viewModel.tree == nil ? "empty" : "filled")
-                    .onChange(of: viewModel.tree) { _, _ in
-                        withAnimation {
-                            proxy.scrollTo(viewModel.tree == nil ? "empty" : "filled", anchor: .top)
-                        }
-                    }
+                    .frame(width: proxy.size.width,
+                           alignment: .topLeading)
+                    .frame(minHeight: proxy.size.height,
+                           alignment: .topLeading)
                 }
             }
             .background(Color(red: 0.988, green: 0.992, blue: 0.998))
@@ -544,6 +566,121 @@ struct JSONParserView: View {
 
     private func buttonForeground(_ level: Int) -> Color {
         viewModel.isLevelExpanded(level) ? Color.slate500 : Color.emerald700
+    }
+}
+
+// MARK: - 链接识别及图片预览
+
+/// 仅将完整的 HTTP(S) 地址当作链接；不把普通文字、邮箱或相对路径自动转成链接。
+func webURL(from string: String) -> URL? {
+    guard string == string.trimmingCharacters(in: .whitespacesAndNewlines),
+          !string.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) }),
+          let components = URLComponents(string: string),
+          let scheme = components.scheme?.lowercased(),
+          scheme == "http" || scheme == "https",
+          let host = components.host, !host.isEmpty,
+          let url = components.url else {
+        return nil
+    }
+    return url
+}
+
+/// 图片链接必须首先是实际 HTTP(S) 地址，再以路径后缀识别图片格式。
+func isImageURLString(_ s: String) -> Bool {
+    let exts: Set<String> = [
+        "jpg", "jpeg", "png", "gif", "webp",
+        "bmp", "heic", "heif", "tiff", "avif"
+    ]
+    guard let url = webURL(from: s) else { return false }
+    // 优先用 URL pathExtension；如果没有，取最后一段路径判断后缀
+    let pathExt = url.pathExtension.lowercased()
+    if !pathExt.isEmpty { return exts.contains(pathExt) }
+    let lastSegment = url.lastPathComponent.lowercased()
+    if let dot = lastSegment.lastIndex(of: ".") {
+        let ext = String(lastSegment[lastSegment.index(after: dot)...])
+        return exts.contains(ext)
+    }
+    return false
+}
+
+/// 图片 URL 点击后弹出预览，弹窗出现时才加载图片。
+struct ImageLeaf: View {
+    let urlString: String
+    let hasComma: Bool
+    @State private var isPreviewPresented = false
+
+    private static let previewLink = URL(string: "zxtools-preview://open")!
+
+    /// 链接文本 + 逗号 + 行内「预览」标记，合并在同一个 Text 中，折行时会自然跟随文字。
+    private var content: AttributedString {
+        var text = AttributedString("\"\(urlString)\"" + (hasComma ? "," : ""))
+        text.font = .system(size: 12, design: .monospaced)
+        text.foregroundColor = Color.slate700
+
+        var marker = AttributedString("  预览")
+        marker.font = .system(size: 10, weight: .medium)
+        marker.foregroundColor = Color.slate400
+        marker.link = Self.previewLink
+
+        return text + marker
+    }
+
+    var body: some View {
+        Text(content)
+            .tint(Color.slate400)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+            .environment(\.openURL, OpenURLAction { url in
+                if url == Self.previewLink {
+                    isPreviewPresented = true
+                    return .handled
+                }
+                return .systemAction
+            })
+            .popover(isPresented: $isPreviewPresented, arrowEdge: .bottom) {
+                imagePreview
+                    .padding(12)
+                    .background(.regularMaterial)
+            }
+    }
+
+    @ViewBuilder
+    private var imagePreview: some View {
+        if let url = URL(string: urlString) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .empty:
+                    VStack(spacing: 8) {
+                        ProgressView()
+                        Text("加载中…")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(width: 260, height: 160)
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 420, maxHeight: 420)
+                case .failure:
+                    VStack(spacing: 8) {
+                        Image(systemName: "photo.badge.exclamationmark")
+                            .foregroundStyle(.red)
+                        Text("图片加载失败")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(width: 260, height: 160)
+                @unknown default:
+                    EmptyView()
+                }
+            }
+        } else {
+            Text("无效链接")
+                .font(.system(size: 11))
+                .padding(8)
+        }
     }
 }
 
