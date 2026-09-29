@@ -97,6 +97,23 @@ enum JSONParser {
         return unwrapString(parsed, depth: depth + 1, limit: limit)
     }
 
+    /// 处理缺少外层引号、但内部带 \" 转义的 JSON 文本，例如 [{\"a\":1}]。
+    /// 补上外层引号后当作 JSON 字符串去转义，仅当结果确实能解包成对象/数组时才返回。
+    static func parseEscapedText(_ text: String) -> Any? {
+        guard text.contains("\\\""),
+              let data = ("\"" + text + "\"").data(using: .utf8),
+              let unescaped = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? String
+        else {
+            return nil
+        }
+        let result = unwrapString(unescaped)
+        guard result.unwrapped > 0,
+              result.value is [String: Any] || result.value is [Any] else {
+            return nil
+        }
+        return unescaped
+    }
+
     static func rootDescription(of value: Any) -> String {
         if let array = value as? [Any] {
             return "根节点类型：数组，共 \(array.count) 项"
@@ -298,35 +315,46 @@ final class JSONParserViewModel: ObservableObject {
             return
         }
 
+        let raw: Any
+        var isEscapedText = false
         do {
-            let raw = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
-            let (unwrappedValue, unwrapped) = JSONParser.unwrapString(raw)
-            let typed = JSONValue.from(unwrappedValue)
-            tree = typed
-            expansions = [:]
-            deepestLevel = typed.containerNodes().map(\.depth).max() ?? 0
-            isError = false
-
-            let meta = JSONParser.rootDescription(of: unwrappedValue)
-            if unwrapped > 0 {
-                statusMessage = "检测到 JSON 字符串，已自动解包 \(unwrapped) 层"
-                metaMessage = "\(meta) | 输入内容是被字符串包裹的 JSON"
-            } else {
-                statusMessage = "JSON 有效，已完成解析"
-                metaMessage = meta
-            }
-
-            if let formatter {
-                inputText = format(jsonObject: unwrappedValue, options: formatter)
-            }
-            if savesHistory {
-                saveHistory(
-                    content: inputText.trimmingCharacters(in: .whitespacesAndNewlines),
-                    summary: meta
-                )
-            }
+            raw = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
         } catch {
-            showError(message: "错误：\(error.localizedDescription)")
+            guard let escaped = JSONParser.parseEscapedText(trimmed) else {
+                showError(message: "错误：\(error.localizedDescription)")
+                return
+            }
+            raw = escaped
+            isEscapedText = true
+        }
+
+        let (unwrappedValue, unwrapped) = JSONParser.unwrapString(raw)
+        let typed = JSONValue.from(unwrappedValue)
+        tree = typed
+        expansions = [:]
+        deepestLevel = typed.containerNodes().map(\.depth).max() ?? 0
+        isError = false
+
+        let meta = JSONParser.rootDescription(of: unwrappedValue)
+        if isEscapedText {
+            statusMessage = "检测到带转义符的 JSON 文本，已自动去转义并解析"
+            metaMessage = "\(meta) | 输入内容含 \\\" 转义"
+        } else if unwrapped > 0 {
+            statusMessage = "检测到 JSON 字符串，已自动解包 \(unwrapped) 层"
+            metaMessage = "\(meta) | 输入内容是被字符串包裹的 JSON"
+        } else {
+            statusMessage = "JSON 有效，已完成解析"
+            metaMessage = meta
+        }
+
+        if let formatter {
+            inputText = format(jsonObject: unwrappedValue, options: formatter)
+        }
+        if savesHistory {
+            saveHistory(
+                content: inputText.trimmingCharacters(in: .whitespacesAndNewlines),
+                summary: meta
+            )
         }
     }
 
@@ -334,8 +362,10 @@ final class JSONParserViewModel: ObservableObject {
         jsonObject: Any,
         options: JSONSerialization.WritingOptions
     ) -> String {
+        var writingOptions = options
+        writingOptions.insert(.withoutEscapingSlashes)
         guard JSONSerialization.isValidJSONObject(jsonObject),
-              let data = try? JSONSerialization.data(withJSONObject: jsonObject, options: options),
+              let data = try? JSONSerialization.data(withJSONObject: jsonObject, options: writingOptions),
               let string = String(data: data, encoding: .utf8) else {
             return inputText
         }
