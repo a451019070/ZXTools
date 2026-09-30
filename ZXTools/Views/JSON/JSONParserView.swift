@@ -11,194 +11,277 @@ import CoreFoundation
 
 
 
-// MARK: - JSON 树节点视图
+// MARK: - JSON 树（带行号 + 左侧折叠箭头）
 
-struct JSONNodeView: View {
-    let label: String?
-    let value: JSONValue
+extension JSONValue {
+    /// 完全展开时占用的行数（折叠后行号会跳号，类似代码编辑器）
+    var lineCount: Int {
+        switch self {
+        case .object(let pairs):
+            return pairs.isEmpty ? 1 : 2 + pairs.reduce(0) { $0 + $1.value.lineCount }
+        case .array(let items):
+            return items.isEmpty ? 1 : 2 + items.reduce(0) { $0 + $1.lineCount }
+        default:
+            return 1
+        }
+    }
+}
+
+enum JSONTreeMetrics {
+    static let indent: CGFloat = 16
+    static let digitWidth: CGFloat = 7
+    /// 行号 + 折叠箭头所在左栏的总宽度
+    static func gutterWidth(totalLines: Int) -> CGFloat {
+        CGFloat(String(max(totalLines, 1)).count) * digitWidth + 30
+    }
+}
+
+struct JSONTreeRow: Identifiable {
+    enum Kind {
+        case open(isArray: Bool)
+        case collapsed(isArray: Bool, summary: String)
+        case close(isArray: Bool)
+        case empty(isArray: Bool)
+        case leaf
+    }
+
+    let id: String
+    let line: Int
     let depth: Int
     let path: String
+    let label: String?
+    let kind: Kind
+    let value: JSONValue
     let hasComma: Bool
-    let arrayIndex: Int?
+}
+
+enum JSONTreeFlattener {
+    static func rows(tree: JSONValue, expansions: [String: Bool]) -> [JSONTreeRow] {
+        var rows: [JSONTreeRow] = []
+        var line = 1
+        append(value: tree, label: nil, path: "root", depth: 0, hasComma: false,
+               expansions: expansions, line: &line, rows: &rows)
+        return rows
+    }
+
+    private static func append(value: JSONValue,
+                               label: String?,
+                               path: String,
+                               depth: Int,
+                               hasComma: Bool,
+                               expansions: [String: Bool],
+                               line: inout Int,
+                               rows: inout [JSONTreeRow]) {
+        let isArray: Bool
+        let children: [(label: String?, value: JSONValue)]
+        let summary: String
+
+        switch value {
+        case .object(let pairs):
+            isArray = false
+            children = pairs.map { (label: String?.some($0.key), value: $0.value) }
+            summary = "\(pairs.count) 个键"
+        case .array(let items):
+            isArray = true
+            children = items.map { (label: String?.none, value: $0) }
+            summary = "\(items.count) 项"
+        default:
+            rows.append(JSONTreeRow(id: path, line: line, depth: depth, path: path, label: label,
+                                    kind: .leaf, value: value, hasComma: hasComma))
+            line += 1
+            return
+        }
+
+        if children.isEmpty {
+            rows.append(JSONTreeRow(id: path, line: line, depth: depth, path: path, label: label,
+                                    kind: .empty(isArray: isArray), value: value, hasComma: hasComma))
+            line += 1
+            return
+        }
+
+        let isOpen = expansions[path] ?? (depth <= 1)
+        guard isOpen else {
+            rows.append(JSONTreeRow(id: path, line: line, depth: depth, path: path, label: label,
+                                    kind: .collapsed(isArray: isArray, summary: summary),
+                                    value: value, hasComma: hasComma))
+            line += value.lineCount
+            return
+        }
+
+        rows.append(JSONTreeRow(id: path, line: line, depth: depth, path: path, label: label,
+                                kind: .open(isArray: isArray), value: value, hasComma: false))
+        line += 1
+
+        let prefix = isArray ? "a" : "o"
+        for (idx, child) in children.enumerated() {
+            append(value: child.value,
+                   label: child.label,
+                   path: "\(path).\(prefix)\(idx)",
+                   depth: depth + 1,
+                   hasComma: idx < children.count - 1,
+                   expansions: expansions,
+                   line: &line,
+                   rows: &rows)
+        }
+
+        rows.append(JSONTreeRow(id: path + "#close", line: line, depth: depth, path: path, label: nil,
+                                kind: .close(isArray: isArray), value: value, hasComma: hasComma))
+        line += 1
+    }
+}
+
+struct JSONTreeView: View {
+    let tree: JSONValue
     @Binding var expansions: [String: Bool]
 
     var body: some View {
-        switch value {
-        case .object(let pairs):
-            branchNode(
-                type: "object",
-                summary: pairs.isEmpty ? "空对象" : "\(pairs.count) 个键",
-                children: AnyView(branchChildren(pairs: pairs))
-            )
-        case .array(let items):
-            branchNode(
-                type: "array",
-                summary: items.isEmpty ? "空数组" : "\(items.count) 项",
-                children: AnyView(arrayChildren(items: items))
-            )
-        case .string(let s):
-            if isImageURLString(s) {
-                leafRow(content: AnyView(ImageLeaf(urlString: s, hasComma: hasComma)),
-                        showComma: false)
-            } else {
-                leafRow(content: AnyView(Text("\"\(s)\"")
-                    .foregroundStyle(Color.slate700)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)))
+        let rows = JSONTreeFlattener.rows(tree: tree, expansions: expansions)
+        let digits = String(tree.lineCount).count
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(rows) { row in
+                JSONTreeRowView(row: row, digits: digits, expansions: $expansions)
             }
-        case .number(let n):
-            leafRow(content: AnyView(Text(formatNumber(n)).foregroundStyle(.green)))
-        case .bool(let b):
-            leafRow(content: AnyView(Text(b ? "true" : "false").foregroundStyle(.blue)))
-        case .null:
-            leafRow(content: AnyView(Text("null").foregroundStyle(.purple)))
+        }
+    }
+}
+
+struct JSONTreeRowView: View {
+    let row: JSONTreeRow
+    let digits: Int
+    @Binding var expansions: [String: Bool]
+
+    private static let rowHeight: CGFloat = 20
+    private static let keyColor = Color(red: 0.63, green: 0.38, blue: 0.03)
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            gutter
+            content
+                .textSelection(.enabled)
+                .padding(.leading, 12 + CGFloat(row.depth) * JSONTreeMetrics.indent)
+                .padding(.trailing, 12)
+                .padding(.vertical, 2)
+                .frame(maxWidth: .infinity, minHeight: Self.rowHeight, alignment: .leading)
         }
     }
 
-    // 子节点: object
-    private func branchChildren(pairs: [JSONMember]) -> some View {
-        Group {
-            if pairs.isEmpty {
-                Text("空对象")
-                    .font(.system(size: 12))
+    // MARK: 左栏：行号 + 折叠箭头
+
+    private var gutter: some View {
+        HStack(spacing: 4) {
+            Text("\(row.line)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(Color.slate400)
+                .frame(width: CGFloat(digits) * JSONTreeMetrics.digitWidth, alignment: .trailing)
+            chevron
+                .frame(width: 12)
+        }
+        .padding(.leading, 8)
+        .padding(.trailing, 6)
+        .frame(height: Self.rowHeight)
+    }
+
+    @ViewBuilder
+    private var chevron: some View {
+        if let isOpen = foldState {
+            Button {
+                expansions[row.path] = !isOpen
+            } label: {
+                Image(systemName: isOpen ? "arrowtriangle.down.fill" : "arrowtriangle.right.fill")
+                    .font(.system(size: 8))
                     .foregroundStyle(Color.slate400)
-            } else {
-                ForEach(0..<pairs.count, id: \.self) { idx in
-                    let pair = pairs[idx]
-                    JSONNodeView(label: pair.key,
-                                 value: pair.value,
-                                 depth: depth + 1,
-                                 path: "\(path).o\(idx)",
-                                 hasComma: idx < pairs.count - 1,
-                                 arrayIndex: nil,
-                                 expansions: $expansions)
-                }
+                    .frame(width: 12, height: Self.rowHeight)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+        } else {
+            Color.clear.frame(height: Self.rowHeight)
         }
     }
 
-    // 子节点: array
-    private func arrayChildren(items: [JSONValue]) -> some View {
-        Group {
-            if items.isEmpty {
-                Text("空数组")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.slate400)
-            } else {
-                ForEach(0..<items.count, id: \.self) { idx in
-                    JSONNodeView(label: nil,
-                                 value: items[idx],
-                                 depth: depth + 1,
-                                 path: "\(path).a\(idx)",
-                                 hasComma: idx < items.count - 1,
-                                 arrayIndex: idx,
-                                 expansions: $expansions)
-                }
-            }
+    private var foldState: Bool? {
+        switch row.kind {
+        case .open: return true
+        case .collapsed: return false
+        default: return nil
         }
     }
 
-    // 容器节点
-    private func branchNode(type: String, summary: String, children: AnyView) -> AnyView {
-        let isOpen = expansions[path] ?? (depth <= 1)
-        let openBracket = type == "array" ? "[" : "{"
-        let closeBracket = type == "array" ? "]" : "}"
+    // MARK: 内容
 
-        return AnyView(
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(spacing: 4) {
-                    Button {
-                        expansions[path] = !isOpen
-                    } label: {
-                        Image(systemName: isOpen ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Color.slate500)
-                            .frame(width: 16, height: 18)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-
-                    if let arrayIndex {
-                        Text("\(arrayIndex):")
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(Color.slate500)
-                    }
-                    if let label {
-                        Text("\"\(label)\"")
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(jsonKeyColor)
-                        Text(":")
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(Color.slate500)
-                    }
-                    Text(openBracket)
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Color.slate700)
-                    if !isOpen {
-                        Text(summary)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.slate500)
-                        Text(closeBracket)
-                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(Color.slate700)
-                    }
-                    if hasComma && !isOpen {
-                        Text(",")
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(Color.slate500)
-                    }
+    @ViewBuilder
+    private var content: some View {
+        if case .leaf = row.kind, case .string(let s) = row.value, isImageURLString(s) {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                if row.label != nil {
+                    Text(keyPrefix)
                 }
-                if isOpen {
-                    VStack(alignment: .leading, spacing: 7) {
-                        children
-                    }
-                    .padding(.leading, 18)
-                    HStack(spacing: 0) {
-                        Text(closeBracket)
-                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(Color.slate700)
-                        if hasComma {
-                            Text(",")
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(Color.slate500)
-                        }
-                    }
-                }
+                ImageLeaf(urlString: s, hasComma: row.hasComma)
             }
-        )
+        } else {
+            Text(lineText)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
-    private func leafRow(content: AnyView, showComma: Bool = true) -> AnyView {
-        AnyView(
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                if let arrayIndex {
-                    Text("\(arrayIndex):")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color.slate500)
-                        .frame(minWidth: 16, alignment: .trailing)
-                } else {
-                    Spacer().frame(width: 16)
-                }
-                if let label {
-                    Text("\"\(label)\"")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(jsonKeyColor)
-                    Text(":")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(Color.slate500)
-                }
-                content
-                if hasComma && showComma {
-                    Text(",")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(Color.slate500)
-                }
-            }
-        )
+    private var keyPrefix: AttributedString {
+        guard let label = row.label else { return AttributedString() }
+        return styled("\"\(label)\"", color: Self.keyColor) + styled(": ", color: .slate500)
     }
 
-    private var jsonKeyColor: Color {
-        Color(red: 0.63, green: 0.38, blue: 0.03)
+    private var comma: AttributedString {
+        row.hasComma ? styled(",", color: .slate500) : AttributedString()
+    }
+
+    private var lineText: AttributedString {
+        var text = keyPrefix
+        switch row.kind {
+        case .open(let isArray):
+            text += bracket(isArray ? "[" : "{")
+        case .collapsed(let isArray, let summary):
+            text += bracket(isArray ? "[" : "{")
+            text += styled(" \(summary) ", color: .slate500, size: 11, mono: false)
+            text += bracket(isArray ? "]" : "}")
+            text += comma
+        case .close(let isArray):
+            text += bracket(isArray ? "]" : "}")
+            text += comma
+        case .empty(let isArray):
+            text += bracket(isArray ? "[]" : "{}")
+            text += comma
+        case .leaf:
+            text += leafValue
+            text += comma
+        }
+        return text
+    }
+
+    private var leafValue: AttributedString {
+        switch row.value {
+        case .string(let s): return styled("\"\(s)\"", color: .slate700)
+        case .number(let n): return styled(formatNumber(n), color: .green)
+        case .bool(let b): return styled(b ? "true" : "false", color: .blue)
+        case .null: return styled("null", color: .purple)
+        default: return AttributedString()
+        }
+    }
+
+    private func bracket(_ s: String) -> AttributedString {
+        styled(s, color: .slate700, weight: .semibold)
+    }
+
+    private func styled(_ text: String,
+                        color: Color,
+                        size: CGFloat = 12,
+                        weight: Font.Weight = .regular,
+                        mono: Bool = true) -> AttributedString {
+        var s = AttributedString(text)
+        s.font = mono
+            ? .system(size: size, weight: weight, design: .monospaced)
+            : .system(size: size, weight: weight)
+        s.foregroundColor = color
+        return s
     }
 
     private func formatNumber(_ n: Double) -> String {
@@ -506,15 +589,8 @@ struct JSONParserView: View {
                 ScrollView(.vertical) {
                     VStack(alignment: .leading) {
                         if let tree = viewModel.tree {
-                            JSONNodeView(label: nil,
-                                         value: tree,
-                                         depth: 0,
-                                         path: "root",
-                                         hasComma: false,
-                                         arrayIndex: nil,
-                                         expansions: $viewModel.expansions)
-                                .textSelection(.enabled)
-                                .padding(12)
+                            JSONTreeView(tree: tree, expansions: $viewModel.expansions)
+                                .padding(.vertical, 8)
                         } else {
                             VStack(spacing: 10) {
                                 Image(systemName: "curlybraces.square")
@@ -534,7 +610,18 @@ struct JSONParserView: View {
                            alignment: .topLeading)
                 }
             }
-            .background(Color(red: 0.988, green: 0.992, blue: 0.998))
+            .background(alignment: .leading) {
+                ZStack(alignment: .leading) {
+                    Color(red: 0.988, green: 0.992, blue: 0.998)
+                    if let tree = viewModel.tree {
+                        Color.slate50
+                            .frame(width: JSONTreeMetrics.gutterWidth(totalLines: tree.lineCount))
+                            .overlay(alignment: .trailing) {
+                                Rectangle().fill(Color.slate200).frame(width: 1)
+                            }
+                    }
+                }
+            }
         }
     }
 
