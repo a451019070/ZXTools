@@ -24,6 +24,9 @@ struct DashboardView: View {
                     dashboardCard(.json, title: "JSON 解析",
                                   subtitle: "支持折叠树状结构、自动解包、格式化、压缩",
                                   accent: .accentIndigo)
+                    dashboardCard(.crypto, title: "编码 / 加密",
+                                  subtitle: "Base64、URL、Hex 编码，AES 加解密，MD5 / SHA 哈希",
+                                  accent: .accentAmber)
                 }
                 Spacer().frame(height: 12)
                 Text("提示：在左侧导航选择具体工具，或点击上方卡片直接进入。")

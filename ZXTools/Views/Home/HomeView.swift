@@ -12,6 +12,7 @@ enum ToolTab: String, CaseIterable, Identifiable {
     case color = "颜色转换"
     case timestamp = "时间戳"
     case json = "JSON 解析"
+    case crypto = "编码 / 加密"
 
     var id: Self { self }
 
@@ -21,6 +22,7 @@ enum ToolTab: String, CaseIterable, Identifiable {
         case .color: return "paintbrush"
         case .timestamp: return "clock"
         case .json: return "curlybraces"
+        case .crypto: return "lock.shield"
         }
     }
 
@@ -30,6 +32,7 @@ enum ToolTab: String, CaseIterable, Identifiable {
         case .color: return .primaryBlue
         case .timestamp: return .secondaryGreen
         case .json: return .accentIndigo
+        case .crypto: return .accentAmber
         }
     }
 }
@@ -76,6 +79,8 @@ struct HomeView: View {
             TimestampCalculatorView()
         case .json:
             JSONParserView()
+        case .crypto:
+            CryptoView()
         }
     }
 }

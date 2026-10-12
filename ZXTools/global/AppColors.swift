@@ -11,6 +11,7 @@ extension Color {
     static let primaryBlue = Color(red: 0.231, green: 0.510, blue: 0.965)   // #3b82f6
     static let secondaryGreen = Color(red: 0.063, green: 0.725, blue: 0.506) // #10b981
     static let accentIndigo = Color(red: 0.388, green: 0.400, blue: 0.945)   // #6366f1
+    static let accentAmber = Color(red: 0.961, green: 0.620, blue: 0.043)    // #f59e0b
     static let slate900 = Color(red: 0.118, green: 0.161, blue: 0.231)       // #1e293b
     static let slate800 = Color(red: 0.200, green: 0.255, blue: 0.333)
     static let slate700 = Color(red: 0.298, green: 0.333, blue: 0.412)
