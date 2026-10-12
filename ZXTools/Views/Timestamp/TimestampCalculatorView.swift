@@ -5,8 +5,20 @@
 //  Created by ZX on 2026/9/21.
 //
 
+import AppKit
 import SwiftUI
 
+private extension View {
+    /// 白底圆角描边卡片。
+    func cardStyle() -> some View {
+        self
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.slate200, lineWidth: 1)
+            )
+    }
+}
 /// 时区列表项。
 private struct TimeZoneItem: Identifiable, Hashable {
     let identifier: String
@@ -52,14 +64,37 @@ struct TimestampCalculatorView: View {
 
     private static let allTimeZones: [TimeZoneItem] = commonTimeZones + otherTimeZones
 
+    /// 支持直接输入的日期时间格式，顺序敏感：更具体的格式需排在前面。
+    private static let dateTimeFormats: [String] = [
+        "yyyy:MM:dd HH:mm:ss",
+        "yyyy:MM:dd HH:mm",
+        "yyyy-MM-dd HH:mm:ss",
+        "yyyy-MM-dd HH:mm",
+        "yyyy/MM/dd HH:mm:ss",
+        "yyyy/MM/dd HH:mm",
+        "yyyy.MM.dd HH:mm:ss",
+        "yyyy.MM.dd HH:mm",
+        "yyyy年MM月dd日 HH:mm:ss",
+        "yyyy年MM月dd日 HH:mm",
+        "yyyy-MM-dd'T'HH:mm:ss",
+        "yyyy-MM-dd'T'HH:mm",
+        "yyyyMMddHHmmss",
+        "yyyy-MM-dd",
+        "yyyy/MM/dd",
+        "yyyy:MM:dd",
+        "yyyy.MM.dd",
+        "yyyy年MM月dd日",
+        "yyyyMMdd",
+    ]
+
     // MARK: - 状态
 
     @State private var pickedDate: Date = Date()
     @State private var timestampSeconds: String = ""
     @State private var timestampMillis: String = ""
-    @State private var timestampInput: String = ""
-    @State private var showTimestampSheet: Bool = false
-    @State private var alertMessage: String?
+    @State private var dateTimeInput: String = ""
+    @State private var inputError: String?
+    @State private var copiedKey: String?
     @State private var selectedTimeZoneID: String = Self.localTimeZoneID
     @State private var showTimeZonePopover: Bool = false
     @State private var timeZoneQuery: String = ""
@@ -72,10 +107,11 @@ struct TimestampCalculatorView: View {
             Divider().background(Color.slate200)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    dateCard
-                    actionButtons
-                    Spacer().frame(height: 12)
+                HStack(alignment: .top, spacing: 20) {
+                    pickerCard
+                        .frame(width: 304)
+                    resultCard
+                        .frame(maxWidth: .infinity)
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 20)
@@ -83,17 +119,6 @@ struct TimestampCalculatorView: View {
             .background(Color.canvasBackground)
         }
         .onAppear { recalc() }
-        .sheet(isPresented: $showTimestampSheet) {
-            timestampInputSheet
-        }
-        .alert("提示", isPresented: Binding(
-            get: { alertMessage != nil },
-            set: { if !$0 { alertMessage = nil } }
-        )) {
-            Button("好") { alertMessage = nil }
-        } message: {
-            Text(alertMessage ?? "")
-        }
     }
 
     // MARK: - Header
@@ -112,6 +137,7 @@ struct TimestampCalculatorView: View {
                 Text("日期与 Unix 时间戳（秒 / 毫秒）双向转换")
                     .font(.system(size: 12))
                     .foregroundStyle(Color.slate500)
+                    .lineLimit(1)
             }
             Spacer()
             timeZoneButton
@@ -432,98 +458,219 @@ struct TimestampCalculatorView: View {
         return String(format: "UTC%@%02d:%02d", sign, absSeconds / 3600, (absSeconds % 3600) / 60)
     }
 
-    // MARK: - Date card
+    /// 按当前所选时区格式化的选中时间。
+    private var formattedPickedDate: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = selectedTimeZone
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter.string(from: pickedDate)
+    }
 
-    private var dateCard: some View {
+    // MARK: - 时 / 分 / 秒 绑定
+
+    private var hourBinding: Binding<Int> {
+        Binding(get: { timeComponent(.hour) }, set: { updateTime(hour: $0) })
+    }
+
+    private var minuteBinding: Binding<Int> {
+        Binding(get: { timeComponent(.minute) }, set: { updateTime(minute: $0) })
+    }
+
+    private var secondBinding: Binding<Int> {
+        Binding(get: { timeComponent(.second) }, set: { updateTime(second: $0) })
+    }
+
+    private func timeComponent(_ unit: Calendar.Component) -> Int {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = selectedTimeZone
+        return calendar.component(unit, from: pickedDate)
+    }
+
+    /// 只改动时分秒，保持年月日不变（步进器不跨天）。
+    private func updateTime(hour: Int? = nil, minute: Int? = nil, second: Int? = nil) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = selectedTimeZone
+        var components = calendar.dateComponents(
+            [.year, .month, .day, .hour, .minute, .second],
+            from: pickedDate
+        )
+        if let hour { components.hour = hour }
+        if let minute { components.minute = minute }
+        if let second { components.second = second }
+        guard let newDate = calendar.date(from: components) else { return }
+        pickedDate = newDate
+        recalc()
+    }
+
+    // MARK: - 左栏：选择日期
+
+    private var pickerCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                sectionLabel("选择日期")
+                Spacer()
+                Button(action: useCurrentTime) {
+                    Label("现在", systemImage: "clock.arrow.circlepath")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.secondaryGreen)
+                .controlSize(.small)
+            }
+
+            DatePicker("", selection: $pickedDate, displayedComponents: .date)
+                .labelsHidden()
+                .datePickerStyle(.graphical)
+                .environment(\.timeZone, selectedTimeZone)
+                .onChange(of: pickedDate) { _, _ in recalc() }
+                .frame(maxWidth: .infinity)
+
+            Divider().background(Color.slate100)
+
+            sectionLabel("选择时间")
+            timeAdjuster
+        }
+        .padding(18)
+        .cardStyle()
+    }
+
+    // MARK: - 右栏：转换结果
+
+    private var resultCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 8) {
-                sectionLabel("当前时间")
+                sectionLabel("转换结果")
                 Text(timeZoneLabel)
                     .font(.system(size: 11))
                     .foregroundStyle(Color.secondaryGreen)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
-                    .background(Color.secondaryGreen.opacity(0.10),
-                                in: Capsule())
+                    .background(Color.secondaryGreen.opacity(0.10), in: Capsule())
+                Spacer()
             }
 
-            DatePicker("", selection: $pickedDate)
-                .labelsHidden()
-                .datePickerStyle(.graphical)
-                .environment(\.timeZone, selectedTimeZone)
-                .onChange(of: pickedDate) { _, _ in recalc() }
+            resultField(
+                title: "日期时间",
+                placeholder: "如 2025:10:11 11:46",
+                text: $dateTimeInput,
+                onSubmit: applyDateTimeInput
+            )
+            resultField(
+                title: "时间戳（秒）",
+                placeholder: "10 位整数",
+                text: $timestampSeconds,
+                onSubmit: applySecondsInput
+            )
+            resultField(
+                title: "时间戳（毫秒）",
+                placeholder: "13 位整数",
+                text: $timestampMillis,
+                onSubmit: applyMillisInput
+            )
 
-            sectionLabel("时间戳（秒）")
-            TextField("", text: $timestampSeconds)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 13, design: .monospaced))
-                .disabled(true)
-
-            sectionLabel("时间戳（毫秒）")
-            TextField("", text: $timestampMillis)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 13, design: .monospaced))
-                .disabled(true)
+            if let inputError {
+                Label(inputError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.orange)
+            } else {
+                Text("在任意一栏输入后按回车，其余内容会自动换算")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.slate400)
+            }
         }
         .padding(18)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+        .cardStyle()
+    }
+
+    private func resultField(title: String,
+                             placeholder: String,
+                             text: Binding<String>,
+                             onSubmit: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.slate500)
+            HStack(spacing: 8) {
+                TextField(placeholder, text: text)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 15, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Color.slate900)
+                    .onSubmit(onSubmit)
+                Button { copyToPasteboard(text.wrappedValue, key: title) } label: {
+                    Image(systemName: copiedKey == title ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(copiedKey == title ? Color.secondaryGreen : Color.slate400)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("复制")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(Color.slate50, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.slate200, lineWidth: 1)
+            )
+        }
+    }
+
+    private func copyToPasteboard(_ value: String, key: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        copiedKey = key
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            if copiedKey == key { copiedKey = nil }
+        }
+    }
+
+    // MARK: - 时 / 分 / 秒 微调
+
+    private var timeAdjuster: some View {
+        HStack(spacing: 6) {
+            timeUnit(value: hourBinding, range: 0...23, caption: "时")
+            timeSeparator
+            timeUnit(value: minuteBinding, range: 0...59, caption: "分")
+            timeSeparator
+            timeUnit(value: secondBinding, range: 0...59, caption: "秒")
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity)
+        .background(Color.slate50, in: RoundedRectangle(cornerRadius: 10))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.slate200, lineWidth: 1)
         )
     }
 
-    private var actionButtons: some View {
-        HStack(spacing: 12) {
-            Button(action: useCurrentTime) {
-                Label("获取当前时间", systemImage: "clock.arrow.circlepath")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.secondaryGreen)
-            .controlSize(.large)
-
-            Button(action: { showTimestampSheet = true }) {
-                Label("时间戳转日期", systemImage: "arrow.uturn.backward")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .tint(.secondaryGreen)
-            .controlSize(.large)
-        }
+    private var timeSeparator: some View {
+        Text(":")
+            .font(.system(size: 20, weight: .semibold, design: .monospaced))
+            .foregroundStyle(Color.slate300)
+            .padding(.bottom, 14)
     }
 
-    // MARK: - 时间戳转日期 sheet
-
-    private var timestampInputSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("输入时间戳（秒）")
-                .font(.system(size: 14, weight: .semibold))
-            TextField("例如：1716000000 或 1716000000000", text: $timestampInput)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 13, design: .monospaced))
-                .onSubmit { applyTimestampInput() }
-
-            HStack(spacing: 6) {
-                Image(systemName: "globe")
-                    .font(.system(size: 11))
-                Text("结果将按「\(timeZoneLabel)」时区显示")
-                    .font(.system(size: 11))
+    private func timeUnit(value: Binding<Int>,
+                          range: ClosedRange<Int>,
+                          caption: String) -> some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 4) {
+                Text(String(format: "%02d", value.wrappedValue))
+                    .font(.system(size: 24, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Color.slate900)
+                Stepper("", value: value, in: range)
+                    .labelsHidden()
+                    .controlSize(.small)
             }
-            .foregroundStyle(Color.slate500)
-
-            HStack {
-                Spacer()
-                Button("取消") { showTimestampSheet = false; timestampInput = "" }
-                    .keyboardShortcut(.cancelAction)
-                Button("应用") { applyTimestampInput() }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .tint(.secondaryGreen)
-            }
+            Text(caption)
+                .font(.system(size: 10))
+                .foregroundStyle(Color.slate400)
         }
-        .padding(20)
-        .frame(width: 380)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - 行为
@@ -546,6 +693,7 @@ struct TimestampCalculatorView: View {
         let ms = Int64(pickedDate.timeIntervalSince1970 * 1000)
         timestampSeconds = String(ms / 1000)
         timestampMillis = String(ms)
+        dateTimeInput = formattedPickedDate
     }
 
     private func useCurrentTime() {
@@ -553,24 +701,105 @@ struct TimestampCalculatorView: View {
         recalc()
     }
 
-    private func applyTimestampInput() {
-        let raw = timestampInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    // MARK: - 输入解析
+
+    /// 秒时间戳 → 日期时间。
+    private func applySecondsInput() {
+        inputError = nil
+        let raw = timestampSeconds.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let value = Int64(raw) else {
-            alertMessage = "请输入有效的时间戳（整数）"
+            inputError = "秒时间戳需要是整数，例如 1760154360"
             return
         }
-        // 启发式：>= 10^12 视为毫秒，否则视为秒
-        let seconds: TimeInterval
-        if raw.count >= 13 {
-            seconds = TimeInterval(value) / 1000.0
-        } else {
-            seconds = TimeInterval(value)
+        pickedDate = Date(timeIntervalSince1970: TimeInterval(value))
+        recalc()
+    }
+
+    /// 毫秒时间戳 → 日期时间。
+    private func applyMillisInput() {
+        inputError = nil
+        let raw = timestampMillis.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Int64(raw) else {
+            inputError = "毫秒时间戳需要是整数，例如 1760154360000"
+            return
         }
-        let date = Date(timeIntervalSince1970: seconds)
+        pickedDate = Date(timeIntervalSince1970: TimeInterval(value) / 1000.0)
+        recalc()
+    }
+
+    /// 日期时间 → 时间戳。
+    private func applyDateTimeInput() {
+        inputError = nil
+        let raw = dateTimeInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else {
+            inputError = "请输入日期时间，例如 2025:10:11 11:46"
+            return
+        }
+        guard let date = resolveInput(raw) else {
+            inputError = "无法识别「\(raw)」，试试 2025:10:11 11:46"
+            return
+        }
         pickedDate = date
         recalc()
-        showTimestampSheet = false
-        timestampInput = ""
+    }
+
+    /// 依次尝试：合理范围内的时间戳 → 日期时间字符串 → 其余时间戳写法。
+    private func resolveInput(_ raw: String) -> Date? {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+
+        if let date = parseTimestamp(text), isPlausible(date) {
+            return date
+        }
+        if let date = parseDateTime(text) {
+            return date
+        }
+        return parseTimestamp(text)
+    }
+
+    /// 纯数字解析为时间戳；去掉负号后 >= 13 位按毫秒处理，支持小数秒。
+    private func parseTimestamp(_ raw: String) -> Date? {
+        guard !raw.isEmpty else { return nil }
+        guard raw.allSatisfy({ $0.isNumber || $0 == "-" || $0 == "." }) else { return nil }
+        guard raw.contains(where: \.isNumber) else { return nil }
+
+        if raw.contains(".") {
+            guard let value = Double(raw) else { return nil }
+            return Date(timeIntervalSince1970: value)
+        }
+        guard let value = Int64(raw) else { return nil }
+        let digits = raw.hasPrefix("-") ? raw.count - 1 : raw.count
+        return digits >= 13
+            ? Date(timeIntervalSince1970: TimeInterval(value) / 1000.0)
+            : Date(timeIntervalSince1970: TimeInterval(value))
+    }
+
+    /// 按当前所选时区解析日期时间字符串。
+    private func parseDateTime(_ raw: String) -> Date? {
+        let zone = selectedTimeZone
+        for format in Self.dateTimeFormats {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = zone
+            formatter.dateFormat = format
+            formatter.isLenient = false
+            if let date = formatter.date(from: raw) {
+                return date
+            }
+        }
+
+        // 带时区偏移的 ISO8601 写法（如 2025-10-11T11:46:30+08:00）
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: raw) { return date }
+        iso.formatOptions = [.withInternetDateTime]
+        return iso.date(from: raw)
+    }
+
+    /// 时间戳解析结果的合理性检查，避免把 14 位紧凑日期误当成毫秒。
+    private func isPlausible(_ date: Date) -> Bool {
+        let year = Calendar(identifier: .gregorian).component(.year, from: date)
+        return (1900...2200).contains(year)
     }
 
     /// 时区切换时，把同一个"日历时间"按新时区重新解释，保持用户感知的年月日时分不变。

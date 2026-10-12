@@ -306,6 +306,7 @@ struct JSONParserView: View {
             Divider().background(Color.slate200)
             mainArea
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear(perform: viewModel.load)
         .sheet(isPresented: $isHistoryPresented) {
             historySheet
@@ -340,50 +341,105 @@ struct JSONParserView: View {
 
     private var toolbar: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                toolButton(title: "新窗口", color: .accentIndigo) {
-                    openWindow(id: "json-parser", value: UUID())
-                }
-                toolButton(title: "历史\(viewModel.history.isEmpty ? "" : " \(viewModel.history.count)")", color: .slate500) {
-                    viewModel.loadHistory()
-                    isHistoryPresented = true
-                }
-                toolButton(title: "示例", color: .skyBlue) { viewModel.loadExample() }
-                toolButton(title: "清空", color: .slate500) { viewModel.clearAll() }
-                toolButton(title: "复制", color: .slate500) { viewModel.copyResult() }
-                toolButton(title: "压缩", color: .slate500) { viewModel.compressInput() }
-                toolButton(title: viewModel.areAllContainersExpanded ? "全部折叠" : "全部展开",
-                           color: .slate500) { viewModel.toggleAll() }
-                toolButton(title: "解析", color: .indigo600, isProminent: true) { viewModel.parseInput() }
-                toolButton(title: "格式化", color: .slate800, isProminent: true) { viewModel.formatInput() }
-                Spacer()
+            ViewThatFits(in: .horizontal) {
+                fullToolbarRow
+                compactToolbarRow
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             if viewModel.deepestLevel > 0 {
-                HStack(spacing: 6) {
-                    Text("按级别：")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.slate500)
-                    ForEach(1...viewModel.deepestLevel, id: \.self) { level in
-                        Button { viewModel.toggleLevel(level) } label: {
-                            Text(viewModel.levelButtonTitle(level))
-                                .font(.system(size: 11, weight: .medium))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(buttonBg(level), in: RoundedRectangle(cornerRadius: 6))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(buttonBorder(level), lineWidth: 1)
-                                )
-                                .foregroundStyle(buttonForeground(level))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        Text("按级别：")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.slate500)
+                        ForEach(1...viewModel.deepestLevel, id: \.self) { level in
+                            Button { viewModel.toggleLevel(level) } label: {
+                                Text(viewModel.levelButtonTitle(level))
+                                    .font(.system(size: 11, weight: .medium))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(buttonBg(level), in: RoundedRectangle(cornerRadius: 6))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .stroke(buttonBorder(level), lineWidth: 1)
+                                    )
+                                    .foregroundStyle(buttonForeground(level))
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .fixedSize()
                 }
             }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.slate50)
+    }
+
+    private var historyTitle: String {
+        "历史\(viewModel.history.isEmpty ? "" : " \(viewModel.history.count)")"
+    }
+
+    private var toggleAllTitle: String {
+        viewModel.areAllContainersExpanded ? "全部折叠" : "全部展开"
+    }
+
+    private func openNewWindow() {
+        openWindow(id: "json-parser", value: UUID())
+    }
+
+    private func showHistory() {
+        viewModel.loadHistory()
+        isHistoryPresented = true
+    }
+
+    private var fullToolbarRow: some View {
+        HStack(spacing: 8) {
+            toolButton(title: "新窗口", color: .accentIndigo) { openNewWindow() }
+            toolButton(title: historyTitle, color: .slate500) { showHistory() }
+            toolButton(title: "示例", color: .skyBlue) { viewModel.loadExample() }
+            toolButton(title: "清空", color: .slate500) { viewModel.clearAll() }
+            toolButton(title: "复制", color: .slate500) { viewModel.copyResult() }
+            toolButton(title: "压缩", color: .slate500) { viewModel.compressInput() }
+            toolButton(title: toggleAllTitle, color: .slate500) { viewModel.toggleAll() }
+            toolButton(title: "解析", color: .indigo600, isProminent: true) { viewModel.parseInput() }
+            toolButton(title: "格式化", color: .slate800, isProminent: true) { viewModel.formatInput() }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var compactToolbarRow: some View {
+        HStack(spacing: 8) {
+            toolButton(title: "清空", color: .slate500) { viewModel.clearAll() }
+            toolButton(title: "解析", color: .indigo600, isProminent: true) { viewModel.parseInput() }
+            toolButton(title: "格式化", color: .slate800, isProminent: true) { viewModel.formatInput() }
+            Menu {
+                Button("新窗口") { openNewWindow() }
+                Button(historyTitle) { showHistory() }
+                Button("示例") { viewModel.loadExample() }
+                Divider()
+                Button("复制") { viewModel.copyResult() }
+                Button("压缩") { viewModel.compressInput() }
+                Button(toggleAllTitle) { viewModel.toggleAll() }
+            } label: {
+                Text("更多 ▾")
+                    .font(.system(size: 12, weight: .medium))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.slate500, lineWidth: 1)
+                    )
+                    .foregroundStyle(Color.slate500)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var historySheet: some View {
@@ -505,14 +561,15 @@ struct JSONParserView: View {
     }
 
     private var mainArea: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             inputPane
-                .frame(minWidth: 320, idealWidth: 380)
+                .frame(minWidth: 240, idealWidth: 380, maxWidth: 480)
             outputPane
-                .frame(minWidth: 360)
+                .frame(minWidth: 280, maxWidth: .infinity)
         }
-        .frame(maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.white)
+        .clipped()
     }
 
     private var inputPane: some View {
