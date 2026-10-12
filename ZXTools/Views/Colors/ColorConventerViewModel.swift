@@ -5,16 +5,27 @@
 //  Created by ZX on 2026/9/22.
 //
 
+import AppKit
 import Combine
 import SwiftUI
 
 @MainActor
 final class ColorConventerViewModel: ObservableObject {
-    @Published var hexInput = ""
-    @Published var rgbOutput = ""
+    @Published var hexInput: String = ""
+    @Published var rgbInput: String = ""
     @Published private(set) var previewColor: Color = .white
+    @Published private(set) var lastHexResult: String = ""
+    @Published private(set) var lastRGBResult: String = ""
+    @Published private(set) var lastDirection: Direction?
     @Published private(set) var errorMessage: String?
     @Published private(set) var history: [ColorHistoryRecord] = []
+
+    enum Direction {
+        case hexToRGB
+        case rgbToHex
+    }
+
+    // MARK: - 转换
 
     func convertHex() {
         let trimmed = hexInput.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -27,28 +38,52 @@ final class ColorConventerViewModel: ObservableObject {
             return
         }
 
-        apply(color)
+        apply(color, direction: .hexToRGB)
         saveHistory(color)
     }
 
     func convertRGB() {
-        let trimmed = rgbOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = rgbInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             errorMessage = "请输入 RGB 颜色值"
             return
         }
         guard let color = ColorValue(rgbString: trimmed) else {
-            errorMessage = "请输入有效的 RGB 颜色值（如 rgb(59, 130, 246)）"
+            errorMessage = "请输入有效的 RGB 颜色值（如 rgb(59, 130, 246) 或 59,130,246）"
             return
         }
 
-        apply(color)
+        apply(color, direction: .rgbToHex)
         saveHistory(color)
     }
 
+    // MARK: - 复制 / 清空
+
+    func copyHex() {
+        guard !lastHexResult.isEmpty else { return }
+        writeToPasteboard(lastHexResult)
+    }
+
+    func copyRGB() {
+        guard !lastRGBResult.isEmpty else { return }
+        writeToPasteboard(lastRGBResult)
+    }
+
+    func clearInputs() {
+        hexInput = ""
+        rgbInput = ""
+        lastHexResult = ""
+        lastRGBResult = ""
+        lastDirection = nil
+        previewColor = .white
+        errorMessage = nil
+    }
+
+    // MARK: - 历史记录
+
     func reuse(_ item: ColorHistoryRecord) {
         hexInput = item.hex.uppercased()
-        rgbOutput = item.rgb
+        rgbInput = item.rgb
         previewColor = makeColor(red: item.red, green: item.green, blue: item.blue)
         errorMessage = nil
     }
@@ -87,9 +122,20 @@ final class ColorConventerViewModel: ObservableObject {
         }
     }
 
-    private func apply(_ color: ColorValue) {
-        hexInput = color.hexString
-        rgbOutput = color.rgbString
+    // MARK: - 私有
+
+    private func apply(_ color: ColorValue, direction: Direction) {
+        switch direction {
+        case .hexToRGB:
+            hexInput = color.hexString
+            rgbInput = color.rgbString
+        case .rgbToHex:
+            rgbInput = color.rgbString
+            hexInput = color.hexString
+        }
+        lastHexResult = color.hexString
+        lastRGBResult = color.rgbString
+        lastDirection = direction
         previewColor = makeColor(red: color.red, green: color.green, blue: color.blue)
         errorMessage = nil
     }
@@ -117,5 +163,11 @@ final class ColorConventerViewModel: ObservableObject {
             green: Double(green) / 255.0,
             blue: Double(blue) / 255.0
         )
+    }
+
+    private func writeToPasteboard(_ string: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(string, forType: .string)
     }
 }

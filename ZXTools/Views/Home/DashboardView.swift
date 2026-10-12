@@ -24,9 +24,6 @@ struct DashboardView: View {
                     dashboardCard(.json, title: "JSON 解析",
                                   subtitle: "支持折叠树状结构、自动解包、格式化、压缩",
                                   accent: .accentIndigo)
-                    dashboardCard(.animation, title: "动图性能分析",
-                                  subtitle: "加载 WebP / GIF，查看帧信息、解码内存与 CPU 占用",
-                                  accent: .orange)
                 }
                 Spacer().frame(height: 12)
                 Text("提示：在左侧导航选择具体工具，或点击上方卡片直接进入。")
