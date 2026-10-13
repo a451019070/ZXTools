@@ -13,6 +13,7 @@ enum ToolTab: String, CaseIterable, Identifiable {
     case timestamp = "时间戳"
     case json = "JSON 解析"
     case crypto = "编码 / 加密"
+    case imageCompress = "图片压缩"
 
     var id: Self { self }
 
@@ -23,6 +24,7 @@ enum ToolTab: String, CaseIterable, Identifiable {
         case .timestamp: return "clock"
         case .json: return "curlybraces"
         case .crypto: return "lock.shield"
+        case .imageCompress: return "photo.badge.arrow.down"
         }
     }
 
@@ -33,6 +35,7 @@ enum ToolTab: String, CaseIterable, Identifiable {
         case .timestamp: return .secondaryGreen
         case .json: return .accentIndigo
         case .crypto: return .accentAmber
+        case .imageCompress: return .accentRose
         }
     }
 }
@@ -81,6 +84,8 @@ struct HomeView: View {
             JSONParserView()
         case .crypto:
             CryptoView()
+        case .imageCompress:
+            ImageCompressView()
         }
     }
 }

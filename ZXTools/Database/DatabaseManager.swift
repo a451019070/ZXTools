@@ -59,8 +59,24 @@ extension DatabaseManager {
 
         createColorTable(&migrator)
         createJsonParserTable(&migrator)
+        createImageCompressTable(&migrator)
 
         return migrator
+    }
+
+    private static func createImageCompressTable(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("createImageCompressHistory") { db in
+            try db.create(table: ImageCompressHistoryRecord.databaseTableName) { table in
+                table.column("id", .text).primaryKey()
+                table.column("fileName", .text).notNull()
+                table.column("source", .text).notNull()
+                table.column("originalSize", .integer).notNull()
+                table.column("compressedSize", .integer).notNull()
+                table.column("outputFormat", .text).notNull()
+                table.column("thumbnail", .blob)
+                table.column("createdAt", .datetime).notNull().indexed()
+            }
+        }
     }
     
     private static func createColorTable(_ migrator: inout DatabaseMigrator) {

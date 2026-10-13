@@ -27,6 +27,9 @@ struct DashboardView: View {
                     dashboardCard(.crypto, title: "编码 / 加密",
                                   subtitle: "Base64、URL、Hex 编码，AES 加解密，MD5 / SHA 哈希",
                                   accent: .accentAmber)
+                    dashboardCard(.imageCompress, title: "图片压缩",
+                                  subtitle: "接入 TinyPNG API，批量压缩 PNG / JPEG / WebP / AVIF，支持格式转换与缩放",
+                                  accent: .accentRose)
                 }
                 Spacer().frame(height: 12)
                 Text("提示：在左侧导航选择具体工具，或点击上方卡片直接进入。")
@@ -44,7 +47,7 @@ struct DashboardView: View {
             Text("欢迎使用 网页辅助工具")
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(Color.slate900)
-            Text("多功能本地工具集合，所有计算均在本地完成。")
+            Text("多功能工具集合，除图片压缩需调用 TinyPNG 服务外，其余计算均在本地完成。")
                 .font(.system(size: 13))
                 .foregroundStyle(Color.slate500)
         }
