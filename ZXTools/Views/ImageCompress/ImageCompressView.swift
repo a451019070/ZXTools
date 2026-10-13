@@ -12,6 +12,8 @@ import UniformTypeIdentifiers
 struct ImageCompressView: View {
     @StateObject private var viewModel = ImageCompressViewModel()
     @State private var isDropTargeted = false
+    @State private var isSettingsExpanded = false
+    @State private var isHistoryExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -20,15 +22,14 @@ struct ImageCompressView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    apiKeyCard
-                    optionsCard
+                    settingsCard
+                    historyCard
                     dropCard
                     linkCard
                     messageBanners
                     if !viewModel.items.isEmpty {
                         listCard
                     }
-                    historyCard
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 20)
@@ -36,7 +37,12 @@ struct ImageCompressView: View {
             }
             .background(Color.canvasBackground)
         }
-        .onAppear(perform: viewModel.loadHistory)
+        .onAppear {
+            viewModel.loadHistory()
+            if !viewModel.hasKey {
+                isSettingsExpanded = true
+            }
+        }
     }
 
     // MARK: - Hero header
@@ -73,8 +79,56 @@ struct ImageCompressView: View {
 
     // MARK: - API Key
 
-    private var apiKeyCard: some View {
+    private var settingsSummary: String {
+        var parts = [viewModel.hasKey ? "Key 已配置" : "未配置 Key"]
+        parts.append(viewModel.outputFormat.title)
+        parts.append(viewModel.resizeMode.title)
+        if viewModel.appendSuffix {
+            parts.append("追加 -tiny 后缀")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private var settingsCard: some View {
         card {
+            VStack(alignment: .leading, spacing: 16) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isSettingsExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color.slate400)
+                            .rotationEffect(.degrees(isSettingsExpanded ? 90 : 0))
+                            .frame(width: 12)
+                        sectionLabel("API Key 与压缩选项")
+                        if !isSettingsExpanded {
+                            Text(settingsSummary)
+                                .font(.system(size: 11))
+                                .foregroundStyle(viewModel.hasKey ? Color.slate500 : Color.red)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if isSettingsExpanded {
+                    Divider().background(Color.slate100)
+                    apiKeyCard
+                    Divider().background(Color.slate100)
+                    optionsCard
+                }
+            }
+        }
+    }
+
+    private var apiKeyCard: some View {
+        Group {
             VStack(alignment: .leading, spacing: 10) {
                 sectionLabel("TinyPNG API Key")
                 HStack(spacing: 10) {
@@ -121,7 +175,7 @@ struct ImageCompressView: View {
     // MARK: - 选项
 
     private var optionsCard: some View {
-        card {
+        Group {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top, spacing: 24) {
                     VStack(alignment: .leading, spacing: 6) {
@@ -497,10 +551,29 @@ struct ImageCompressView: View {
     private var historyCard: some View {
         card {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    sectionLabel("压缩记录（\(viewModel.history.count) / \(ImageCompressHistoryRepository.maximumCount)）")
-                    Spacer()
-                    if !viewModel.history.isEmpty {
+                HStack(spacing: 8) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isHistoryExpanded.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color.slate400)
+                                .rotationEffect(.degrees(isHistoryExpanded ? 90 : 0))
+                                .frame(width: 12)
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Color.slate500)
+                            sectionLabel("压缩记录（\(viewModel.history.count) / \(ImageCompressHistoryRepository.maximumCount)）")
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    if isHistoryExpanded && !viewModel.history.isEmpty {
                         Button(action: viewModel.clearHistory) {
                             Label("清空记录", systemImage: "trash")
                                 .font(.system(size: 12))
@@ -510,7 +583,9 @@ struct ImageCompressView: View {
                     }
                 }
 
-                if viewModel.history.isEmpty {
+                if !isHistoryExpanded {
+                    EmptyView()
+                } else if viewModel.history.isEmpty {
                     Text("暂无记录。压缩成功的图片会自动记录在这里，最多保留 \(ImageCompressHistoryRepository.maximumCount) 条，超出后最早的记录会被替换。")
                         .font(.system(size: 12))
                         .foregroundStyle(Color.slate400)

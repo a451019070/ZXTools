@@ -55,7 +55,7 @@ struct ColorConverterView: View {
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
         .background(Color.white)
-    }
+    } 
 
     // MARK: - 输入卡片
 
@@ -68,7 +68,6 @@ struct ColorConverterView: View {
                     hint: nil,
                     text: $viewModel.hexInput,
                     buttonTitle: "Hex → RGB",
-                    buttonIcon: "arrow.right",
                     action: viewModel.convertHex
                 )
                 converterPanel(
@@ -77,7 +76,6 @@ struct ColorConverterView: View {
                     hint: "支持 rgb()、逗号、空格分隔，括号可选",
                     text: $viewModel.rgbInput,
                     buttonTitle: "RGB → Hex",
-                    buttonIcon: "arrow.left",
                     action: viewModel.convertRGB
                 )
             }
@@ -114,7 +112,7 @@ struct ColorConverterView: View {
         hint: String?,
         text: Binding<String>,
         buttonTitle: String,
-        buttonIcon: String,
+//        buttonIcon: String,
         action: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -132,7 +130,7 @@ struct ColorConverterView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Button(action: action) {
-                Label(buttonTitle, systemImage: buttonIcon)
+                Text(buttonTitle)
                     .font(.system(size: 12, weight: .medium))
             }
             .buttonStyle(.borderedProminent)
@@ -288,7 +286,7 @@ struct ColorConverterView: View {
             } else {
                 List {
                     ForEach(viewModel.history) { item in
-                        historyRow(item)
+                        ColorHistoryRow(item: item)
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.white)
@@ -346,7 +344,21 @@ struct ColorConverterView: View {
         .background(Color.white, in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private func historyRow(_ item: ColorHistoryRecord) -> some View {
+    // MARK: - 行为
+
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(Color.slate700)
+    }
+}
+
+// MARK: - 历史记录行
+
+struct ColorHistoryRow: View {
+    let item: ColorHistoryRecord
+
+    var body: some View {
         HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 6)
                 .fill(Color(item))
@@ -363,18 +375,11 @@ struct ColorConverterView: View {
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(Color.slate500)
             }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
-    }
-
-    // MARK: - 行为
-
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Color.slate700)
     }
 }
 

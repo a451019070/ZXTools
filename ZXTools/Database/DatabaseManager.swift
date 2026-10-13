@@ -53,6 +53,23 @@ final class DatabaseManager {
     
 }
 
+/// 迁移标识。rawValue 会写入 grdb_migrations 表,发布后禁止修改。
+fileprivate enum MigrationID: String {
+    case createColorHistory = "createColorHistory"
+    case createJsonParserHistory = "createJsonParserHistory"
+    case createNewJsonParserHistory = "createNewJsonParserHistory"
+    case createImageCompressHistory = "createImageCompressHistory"
+}
+
+fileprivate extension DatabaseMigrator {
+    mutating func registerMigration(
+        _ id: MigrationID,
+        migrate: @escaping @Sendable (Database) throws -> Void
+    ) {
+        registerMigration(id.rawValue, migrate: migrate)
+    }
+}
+
 extension DatabaseManager {
     private static func makeMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
@@ -65,7 +82,7 @@ extension DatabaseManager {
     }
 
     private static func createImageCompressTable(_ migrator: inout DatabaseMigrator) {
-        migrator.registerMigration("createImageCompressHistory") { db in
+        migrator.registerMigration(.createImageCompressHistory) { db in
             try db.create(table: ImageCompressHistoryRecord.databaseTableName) { table in
                 table.column("id", .text).primaryKey()
                 table.column("fileName", .text).notNull()
@@ -80,7 +97,7 @@ extension DatabaseManager {
     }
     
     private static func createColorTable(_ migrator: inout DatabaseMigrator) {
-        migrator.registerMigration("createColorHistory") { db in
+        migrator.registerMigration(.createColorHistory) { db in
             try db.create(table: ColorHistoryRecord.databaseTableName) { table in
                 table.column("id", .text).primaryKey()
                 table.column("hex", .text).notNull().unique(onConflict: .replace)
@@ -94,7 +111,7 @@ extension DatabaseManager {
     }
 
     private static func createJsonParserTable(_ migrator: inout DatabaseMigrator) {
-        migrator.registerMigration("createJsonParserHistory") { db in
+        migrator.registerMigration(.createJsonParserHistory) { db in
             try db.create(table: JsonParserHistoryRecord.databaseTableName) { table in
                 table.column("id", .text).primaryKey()
                 table.column("content", .text).notNull()
@@ -103,5 +120,4 @@ extension DatabaseManager {
             }
         }
     }
-
 }
