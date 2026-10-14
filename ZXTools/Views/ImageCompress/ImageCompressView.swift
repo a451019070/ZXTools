@@ -315,9 +315,26 @@ struct ImageCompressView: View {
     private var linkCard: some View {
         card {
             VStack(alignment: .leading, spacing: 10) {
-                sectionLabel("通过图片链接添加")
+                HStack(spacing: 12) {
+                    sectionLabel("通过图片链接添加")
+                    Picker("", selection: $viewModel.linkPlatform) {
+                        ForEach(ImageLinkPlatform.allCases) { platform in
+                            Text(platform.title).tag(platform)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                    .disabled(viewModel.isDownloading)
+                    Spacer(minLength: 0)
+                }
+
+                if viewModel.linkPlatform.requiresKey {
+                    linkTokenRow
+                }
+
                 HStack(alignment: .top, spacing: 10) {
-                    TextField("https://example.com/image.png，多个链接用换行或空格分隔", text: $viewModel.linkInput, axis: .vertical)
+                    TextField(viewModel.linkPlatform.linkPlaceholder, text: $viewModel.linkInput, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 12, design: .monospaced))
                         .lineLimit(1...4)
@@ -342,9 +359,42 @@ struct ImageCompressView: View {
                             || viewModel.linkInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     )
                 }
-                Text("会先把图片下载到本地，再按上方选项压缩。链接需可直接访问，需要登录或有防盗链的图片可能下载失败。")
+                Text(viewModel.linkPlatform.hint)
                     .font(.system(size: 10))
                     .foregroundStyle(Color.slate400)
+            }
+        }
+    }
+
+    private var linkTokenRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text(viewModel.linkPlatform.keyTitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.slate600)
+
+                SecureField(viewModel.linkPlatform.keyPlaceholder, text: $viewModel.linkToken)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12, design: .monospaced))
+                    .onSubmit(viewModel.saveLinkToken)
+
+                Button(action: viewModel.saveLinkToken) {
+                    Label(viewModel.hasLinkToken ? "保存" : "清除", systemImage: "checkmark.shield")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.accentRose)
+                .controlSize(.small)
+            }
+
+            if let message = viewModel.linkTokenMessage {
+                Label(message, systemImage: viewModel.linkTokenMessageIsError ? "exclamationmark.circle" : "checkmark.circle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(viewModel.linkTokenMessageIsError ? Color.red : Color.secondaryGreen)
+            } else if !viewModel.isLinkPlatformReady {
+                Label("尚未保存 \(viewModel.linkPlatform.keyTitle)，保存后才能下载", systemImage: "exclamationmark.circle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.accentAmber)
             }
         }
     }

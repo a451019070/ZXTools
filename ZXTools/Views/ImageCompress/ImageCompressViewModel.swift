@@ -132,6 +132,18 @@ final class ImageCompressViewModel: ObservableObject {
     @Published var linkInput = ""
     @Published private(set) var isDownloading = false
 
+    /// 当前选择的链接平台；切换时读取该平台已保存的 Key
+    @Published var linkPlatform: ImageLinkPlatform = .publicLink {
+        didSet {
+            guard linkPlatform != oldValue else { return }
+            linkToken = linkPlatform.keychainAccount.flatMap { KeychainStore.read(account: $0) } ?? ""
+            linkTokenMessage = nil
+        }
+    }
+    @Published var linkToken = ""
+    @Published private(set) var linkTokenMessage: String?
+    @Published private(set) var linkTokenMessageIsError = false
+
     private var compressTask: Task<Void, Never>?
 
     // 压缩记录
@@ -413,6 +425,44 @@ final class ImageCompressViewModel: ObservableObject {
         supportedExtensions.contains(url.pathExtension.lowercased())
     }
 
+    // MARK: - 链接平台 Key
+
+    private func storedToken(for platform: ImageLinkPlatform) -> String? {
+        guard let account = platform.keychainAccount else { return nil }
+        let value = KeychainStore.read(account: account)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (value?.isEmpty == false) ? value : nil
+    }
+
+    var hasLinkToken: Bool {
+        !linkToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 当前平台是否已具备下载条件（无需 Key，或已保存 Key）
+    var isLinkPlatformReady: Bool {
+        !linkPlatform.requiresKey || storedToken(for: linkPlatform) != nil
+    }
+
+    func saveLinkToken() {
+        guard let account = linkPlatform.keychainAccount else { return }
+        let trimmed = linkToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        linkToken = trimmed
+
+        if trimmed.isEmpty {
+            KeychainStore.delete(account: account)
+            setLinkTokenMessage("已清除 \(linkPlatform.keyTitle)", isError: false)
+        } else if KeychainStore.save(trimmed, account: account) {
+            setLinkTokenMessage("已保存到钥匙串", isError: false)
+        } else {
+            setLinkTokenMessage("保存到钥匙串失败", isError: true)
+        }
+        objectWillChange.send()
+    }
+
+    private func setLinkTokenMessage(_ message: String, isError: Bool) {
+        linkTokenMessage = message
+        linkTokenMessageIsError = isError
+    }
+
     // MARK: - 通过链接添加
 
     /// 支持一次粘贴多个链接，用换行、空格或逗号分隔
@@ -423,6 +473,16 @@ final class ImageCompressViewModel: ObservableObject {
             return
         }
         guard !isDownloading else { return }
+
+        let platform = linkPlatform
+        var token: String?
+        if platform.requiresKey {
+            guard let saved = storedToken(for: platform) else {
+                errorMessage = ImageLinkError.missingToken(platform.keyTitle).localizedDescription
+                return
+            }
+            token = saved
+        }
 
         let existing = Set(items.map(\.fileURL))
         let fresh = urls.filter { !existing.contains($0) }
@@ -441,12 +501,27 @@ final class ImageCompressViewModel: ObservableObject {
             var added = 0
 
             for url in fresh {
-                switch await Self.download(url) {
+                let resolved: ResolvedImageLink
+                do {
+                    resolved = try await platform.resolve(url, token: token)
+                } catch {
+                    failures.append("\(url.host() ?? url.absoluteString)：\(error.localizedDescription)")
+                    // Key 问题会影响后续所有链接，直接停止
+                    if case FigmaError.invalidToken = error { break }
+                    if case FigmaError.forbidden = error { break }
+                    continue
+                }
+
+                switch await Self.download(resolved.downloadURL) {
                 case .success(let data):
                     items.append(
                         ImageCompressItem(
                             fileURL: url,
-                            fileName: Self.remoteFileName(for: url, data: data),
+                            fileName: Self.remoteFileName(
+                                for: resolved.downloadURL,
+                                suggestedName: resolved.suggestedName,
+                                data: data
+                            ),
                             originalData: data,
                             thumbnail: Self.makeThumbnail(from: data)
                         )
@@ -539,7 +614,14 @@ final class ImageCompressViewModel: ObservableObject {
         }
     }
 
-    private static func remoteFileName(for url: URL, data: Data) -> String {
+    private static func remoteFileName(for url: URL, suggestedName: String?, data: Data) -> String {
+        if let suggestedName, !suggestedName.isEmpty {
+            let ext = CGImageSourceCreateWithData(data as CFData, nil)
+                .flatMap { CGImageSourceGetType($0) as String? }
+                .flatMap { UTType($0)?.preferredFilenameExtension } ?? "png"
+            return suggestedName + "." + ext
+        }
+
         var name = url.lastPathComponent
         if name.isEmpty || name == "/" {
             name = url.host() ?? "image"
