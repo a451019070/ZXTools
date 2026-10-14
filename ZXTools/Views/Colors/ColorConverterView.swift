@@ -21,7 +21,6 @@ struct ColorConverterView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     inputCard
-                    resultCard
                     historyCard
                 }
                 .padding(.horizontal, 24)
@@ -79,6 +78,7 @@ struct ColorConverterView: View {
                     action: viewModel.convertRGB
                 )
             }
+            .fixedSize(horizontal: false, vertical: true)
 
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -116,19 +116,21 @@ struct ColorConverterView: View {
         action: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionLabel(title)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                sectionLabel(title)
+                if let hint {
+                    Text(hint)
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.slate400)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
             TextField(placeholder, text: text)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 13, design: .monospaced))
                 .onSubmit(action)
                 .frame(height: 36)
-            if let hint {
-                Text(hint)
-                    .font(.system(size: 10))
-                    .foregroundStyle(Color.slate400)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
             Button(action: action) {
                 Text(buttonTitle)
                     .font(.system(size: 12, weight: .medium))
@@ -137,7 +139,7 @@ struct ColorConverterView: View {
             .tint(.primaryBlue)
             .controlSize(.small)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(14)
         .background(Color.slate50, in: RoundedRectangle(cornerRadius: 10))
         .overlay(
@@ -165,90 +167,6 @@ struct ColorConverterView: View {
                         .foregroundStyle(Color.slate700)
                 }
             }
-        }
-    }
-
-    // MARK: - 结果卡片
-
-    private var resultCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                sectionLabel("转换结果")
-                Spacer()
-                if !viewModel.lastHexResult.isEmpty {
-                    Text(directionDescription)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.slate500)
-                }
-            }
-
-            if viewModel.lastHexResult.isEmpty {
-                emptyResult
-            } else {
-                VStack(spacing: 0) {
-                    resultRow(label: "HEX", value: viewModel.lastHexResult, action: viewModel.copyHex)
-                    Divider().background(Color.slate200)
-                    resultRow(label: "RGB", value: viewModel.lastRGBResult, action: viewModel.copyRGB)
-                }
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.slate200, lineWidth: 1)
-                )
-            }
-        }
-        .padding(18)
-        .background(Color.slate50, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.slate200, lineWidth: 1)
-        )
-    }
-
-    private var emptyResult: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "swatchpalette")
-                .font(.system(size: 22))
-                .foregroundStyle(Color.slate300)
-            Text("输入 Hex 或 RGB 后，转换结果会显示在这里")
-                .font(.system(size: 12))
-                .foregroundStyle(Color.slate400)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 22)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    private func resultRow(label: String, value: String, action: @escaping () -> Void) -> some View {
-        HStack(spacing: 12) {
-            Text(label)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Color.slate500)
-                .frame(width: 44, alignment: .leading)
-            Text(value)
-                .font(.system(size: 13, design: .monospaced))
-                .foregroundStyle(Color.slate800)
-                .textSelection(.enabled)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Button(action: action) {
-                Label("复制", systemImage: "doc.on.doc")
-                    .font(.system(size: 11))
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help("复制到剪贴板")
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-    }
-
-    private var directionDescription: String {
-        switch viewModel.lastDirection {
-        case .hexToRGB: return "最近一次 Hex → RGB"
-        case .rgbToHex: return "最近一次 RGB → Hex"
-        case .none:     return ""
         }
     }
 
