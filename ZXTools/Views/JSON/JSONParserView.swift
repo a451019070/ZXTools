@@ -133,13 +133,20 @@ enum JSONTreeFlattener {
 struct JSONTreeView: View {
     let tree: JSONValue
     @Binding var expansions: [String: Bool]
+    var query: String = ""
+    var matchIDs: Set<String> = []
+    var currentMatchID: String? = nil
 
     var body: some View {
         let rows = JSONTreeFlattener.rows(tree: tree, expansions: expansions)
         let digits = String(tree.lineCount).count
         LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(rows) { row in
-                JSONTreeRowView(row: row, digits: digits, expansions: $expansions)
+                JSONTreeRowView(row: row,
+                                digits: digits,
+                                expansions: $expansions,
+                                query: matchIDs.contains(row.id) ? query : "",
+                                isCurrentMatch: row.id == currentMatchID)
             }
         }
     }
@@ -149,6 +156,8 @@ struct JSONTreeRowView: View {
     let row: JSONTreeRow
     let digits: Int
     @Binding var expansions: [String: Bool]
+    var query: String = ""
+    var isCurrentMatch: Bool = false
 
     private static let rowHeight: CGFloat = 20
     private static let keyColor = Color(red: 0.63, green: 0.38, blue: 0.03)
@@ -163,6 +172,7 @@ struct JSONTreeRowView: View {
                 .padding(.vertical, 2)
                 .frame(maxWidth: .infinity, minHeight: Self.rowHeight, alignment: .leading)
         }
+        .background(isCurrentMatch ? Color.orange.opacity(0.12) : Color.clear)
     }
 
     // MARK: 左栏：行号 + 折叠箭头
@@ -216,7 +226,7 @@ struct JSONTreeRowView: View {
                 if row.label != nil {
                     Text(keyPrefix)
                 }
-                ImageLeaf(urlString: s, hasComma: row.hasComma)
+                ImageLeaf(urlString: s, hasComma: row.hasComma, query: query, isCurrentMatch: isCurrentMatch)
             }
         } else {
             Text(lineText)
@@ -227,7 +237,7 @@ struct JSONTreeRowView: View {
 
     private var keyPrefix: AttributedString {
         guard let label = row.label else { return AttributedString() }
-        return styled("\"\(label)\"", color: Self.keyColor) + styled(": ", color: .slate500)
+        return styled("\"\(label)\"", color: Self.keyColor, highlight: true) + styled(": ", color: .slate500)
     }
 
     private var comma: AttributedString {
@@ -259,10 +269,10 @@ struct JSONTreeRowView: View {
 
     private var leafValue: AttributedString {
         switch row.value {
-        case .string(let s): return styled("\"\(s)\"", color: .slate700)
-        case .number(let n): return styled(formatNumber(n), color: .green)
-        case .bool(let b): return styled(b ? "true" : "false", color: .blue)
-        case .null: return styled("null", color: .purple)
+        case .string(let s): return styled("\"\(s)\"", color: .slate700, highlight: true)
+        case .number(let n): return styled(formatNumber(n), color: .green, highlight: true)
+        case .bool(let b): return styled(b ? "true" : "false", color: .blue, highlight: true)
+        case .null: return styled("null", color: .purple, highlight: true)
         default: return AttributedString()
         }
     }
@@ -275,12 +285,27 @@ struct JSONTreeRowView: View {
                         color: Color,
                         size: CGFloat = 12,
                         weight: Font.Weight = .regular,
-                        mono: Bool = true) -> AttributedString {
+                        mono: Bool = true,
+                        highlight: Bool = false) -> AttributedString {
         var s = AttributedString(text)
         s.font = mono
             ? .system(size: size, weight: weight, design: .monospaced)
             : .system(size: size, weight: weight)
         s.foregroundColor = color
+        if highlight, !query.isEmpty {
+            var searchStart = text.startIndex
+            while searchStart < text.endIndex,
+                  let found = text.range(of: query, options: .caseInsensitive, range: searchStart..<text.endIndex),
+                  !found.isEmpty {
+                if let lower = AttributedString.Index(found.lowerBound, within: s),
+                   let upper = AttributedString.Index(found.upperBound, within: s) {
+                    s[lower..<upper].backgroundColor = isCurrentMatch
+                        ? Color.orange.opacity(0.65)
+                        : Color.yellow.opacity(0.55)
+                }
+                searchStart = found.upperBound
+            }
+        }
         return s
     }
 
@@ -626,11 +651,12 @@ struct JSONParserView: View {
 
     private var outputPane: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(spacing: 10) {
                 Text("树形结果")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color.slate500)
-                Spacer()
+                searchBar
+                Spacer(minLength: 0)
                 if !viewModel.metaMessage.isEmpty {
                     Text(viewModel.metaMessage)
                         .font(.system(size: 10))
@@ -643,28 +669,42 @@ struct JSONParserView: View {
             .background(Color.slate50)
 
             GeometryReader { proxy in
-                ScrollView(.vertical) {
-                    VStack(alignment: .leading) {
-                        if let tree = viewModel.tree {
-                            JSONTreeView(tree: tree, expansions: $viewModel.expansions)
-                                .padding(.vertical, 8)
-                        } else {
-                            VStack(spacing: 10) {
-                                Image(systemName: "curlybraces.square")
-                                    .font(.system(size: 30))
-                                    .foregroundStyle(Color.slate300)
-                                Text("解析结果将在这里以折叠树展示")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(Color.slate400)
+                ScrollViewReader { scrollProxy in
+                    ScrollView(.vertical) {
+                        VStack(alignment: .leading) {
+                            if let tree = viewModel.tree {
+                                JSONTreeView(tree: tree,
+                                             expansions: $viewModel.expansions,
+                                             query: viewModel.searchText,
+                                             matchIDs: Set(viewModel.searchMatches),
+                                             currentMatchID: viewModel.currentMatchID)
+                                    .padding(.vertical, 8)
+                            } else {
+                                VStack(spacing: 10) {
+                                    Image(systemName: "curlybraces.square")
+                                        .font(.system(size: 30))
+                                        .foregroundStyle(Color.slate300)
+                                    Text("解析结果将在这里以折叠树展示")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(Color.slate400)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 60)
                             }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 60)
+                        }
+                        .frame(width: proxy.size.width,
+                               alignment: .topLeading)
+                        .frame(minHeight: proxy.size.height,
+                               alignment: .topLeading)
+                    }
+                    .onChange(of: viewModel.scrollToken) { _, _ in
+                        guard let id = viewModel.currentMatchID else { return }
+                        DispatchQueue.main.async {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                scrollProxy.scrollTo(id, anchor: .center)
+                            }
                         }
                     }
-                    .frame(width: proxy.size.width,
-                           alignment: .topLeading)
-                    .frame(minHeight: proxy.size.height,
-                           alignment: .topLeading)
                 }
             }
             .background(alignment: .leading) {
@@ -680,6 +720,51 @@ struct JSONParserView: View {
                 }
             }
         }
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.slate400)
+            TextField("搜索 key 或 value", text: $viewModel.searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .frame(minWidth: 80, maxWidth: 200)
+                .onSubmit { viewModel.goToNextMatch() }
+            if !viewModel.searchText.isEmpty {
+                Text(viewModel.searchMatches.isEmpty
+                     ? "无结果"
+                     : "\(viewModel.currentMatchIndex + 1)/\(viewModel.searchMatches.count)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(viewModel.searchMatches.isEmpty ? Color.red : Color.slate500)
+                    .lineLimit(1)
+                    .fixedSize()
+                Button { viewModel.goToPreviousMatch() } label: {
+                    Image(systemName: "chevron.up").font(.system(size: 10, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel.searchMatches.isEmpty)
+                Button { viewModel.goToNextMatch() } label: {
+                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel.searchMatches.isEmpty)
+                Button { viewModel.searchText = "" } label: {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 11))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.slate400)
+            }
+        }
+        .foregroundStyle(Color.slate500)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.slate200, lineWidth: 1)
+        )
     }
 
     private var statusLabel: some View {
@@ -751,15 +836,33 @@ func isImageURLString(_ s: String) -> Bool {
 struct ImageLeaf: View {
     let urlString: String
     let hasComma: Bool
+    var query: String = ""
+    var isCurrentMatch: Bool = false
     @State private var isPreviewPresented = false
 
     private static let previewLink = URL(string: "zxtools-preview://open")!
 
     /// 链接文本 + 逗号 + 行内「预览」标记，合并在同一个 Text 中，折行时会自然跟随文字。
     private var content: AttributedString {
-        var text = AttributedString("\"\(urlString)\"" + (hasComma ? "," : ""))
+        let raw = "\"\(urlString)\"" + (hasComma ? "," : "")
+        var text = AttributedString(raw)
         text.font = .system(size: 12, design: .monospaced)
         text.foregroundColor = Color.slate700
+
+        if !query.isEmpty {
+            var searchStart = raw.startIndex
+            while searchStart < raw.endIndex,
+                  let found = raw.range(of: query, options: .caseInsensitive, range: searchStart..<raw.endIndex),
+                  !found.isEmpty {
+                if let lower = AttributedString.Index(found.lowerBound, within: text),
+                   let upper = AttributedString.Index(found.upperBound, within: text) {
+                    text[lower..<upper].backgroundColor = isCurrentMatch
+                        ? Color.orange.opacity(0.65)
+                        : Color.yellow.opacity(0.55)
+                }
+                searchStart = found.upperBound
+            }
+        }
 
         var marker = AttributedString("  预览")
         marker.font = .system(size: 10, weight: .medium)

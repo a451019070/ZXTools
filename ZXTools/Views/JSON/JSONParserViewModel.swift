@@ -58,6 +58,50 @@ extension JSONValue {
         if let string = any as? String { return .string(string) }
         return .string(String(describing: any))
     }
+
+    static func formatNumber(_ n: Double) -> String {
+        if n.rounded() == n && abs(n) < 1e15 {
+            return String(Int64(n))
+        }
+        return String(n)
+    }
+
+    /// 叶子节点显示的文本（用于搜索 value）
+    var leafText: String? {
+        switch self {
+        case .string(let s): return s
+        case .number(let n): return JSONValue.formatNumber(n)
+        case .bool(let b): return b ? "true" : "false"
+        case .null: return "null"
+        default: return nil
+        }
+    }
+
+    /// 按文档顺序收集 key 或 value 命中的节点路径（路径规则与树展开一致）
+    func collectMatches(query: String,
+                        label: String? = nil,
+                        path: String = "root",
+                        into result: inout [String]) {
+        let keyHit = label?.range(of: query, options: .caseInsensitive) != nil
+        let valueHit = leafText?.range(of: query, options: .caseInsensitive) != nil
+        if keyHit || valueHit { result.append(path) }
+
+        switch self {
+        case .object(let pairs):
+            for (index, member) in pairs.enumerated() {
+                member.value.collectMatches(query: query, label: member.key,
+                                            path: "\(path).o\(index)", into: &result)
+            }
+        case .array(let items):
+            for (index, item) in items.enumerated() {
+                item.collectMatches(query: query, label: nil,
+                                    path: "\(path).a\(index)", into: &result)
+            }
+        default:
+            break
+        }
+    }
+
     func containerNodes(path: String = "root", depth: Int = 0) -> [(path: String, depth: Int)] {
         switch self {
         case .object(let pairs):
@@ -168,6 +212,62 @@ final class JSONParserViewModel: ObservableObject {
     @Published var expansions: [String: Bool] = [:]
     @Published private(set) var deepestLevel = 0
     @Published private(set) var history: [JsonParserHistoryRecord] = []
+    @Published var searchText = "" {
+        didSet {
+            if oldValue != searchText { refreshSearch() }
+        }
+    }
+    @Published private(set) var searchMatches: [String] = []
+    @Published private(set) var currentMatchIndex = 0
+    @Published private(set) var scrollToken = 0
+
+    var currentMatchID: String? {
+        searchMatches.indices.contains(currentMatchIndex) ? searchMatches[currentMatchIndex] : nil
+    }
+
+    func refreshSearch() {
+        guard let tree, !searchText.isEmpty else {
+            searchMatches = []
+            currentMatchIndex = 0
+            return
+        }
+        var result: [String] = []
+        tree.collectMatches(query: searchText, into: &result)
+        searchMatches = result
+        currentMatchIndex = 0
+        guard !result.isEmpty else { return }
+        expandAncestors(of: result)
+        scrollToken += 1
+    }
+
+    func goToNextMatch() {
+        guard !searchMatches.isEmpty else { return }
+        currentMatchIndex = (currentMatchIndex + 1) % searchMatches.count
+        revealCurrentMatch()
+    }
+
+    func goToPreviousMatch() {
+        guard !searchMatches.isEmpty else { return }
+        currentMatchIndex = (currentMatchIndex - 1 + searchMatches.count) % searchMatches.count
+        revealCurrentMatch()
+    }
+
+    private func revealCurrentMatch() {
+        if let id = currentMatchID { expandAncestors(of: [id]) }
+        scrollToken += 1
+    }
+
+    private func expandAncestors(of paths: [String]) {
+        var newExpansions = expansions
+        for path in paths {
+            let components = path.split(separator: ".").map(String.init)
+            guard components.count > 1 else { continue }
+            for end in 1..<components.count {
+                newExpansions[components[0..<end].joined(separator: ".")] = true
+            }
+        }
+        if newExpansions != expansions { expansions = newExpansions }
+    }
 
     var areAllContainersExpanded: Bool {
         !collapsibleNodes.isEmpty && collapsibleNodes.allSatisfy { isExpanded($0) }
@@ -209,6 +309,7 @@ final class JSONParserViewModel: ObservableObject {
         metaMessage = ""
         deepestLevel = 0
         expansions = [:]
+        refreshSearch()
     }
 
     func copyResult() {
@@ -308,6 +409,7 @@ final class JSONParserViewModel: ObservableObject {
             isError = false
             tree = nil
             metaMessage = ""
+            refreshSearch()
             return
         }
         guard let data = trimmed.data(using: .utf8) else {
@@ -334,6 +436,7 @@ final class JSONParserViewModel: ObservableObject {
         expansions = [:]
         deepestLevel = typed.containerNodes().map(\.depth).max() ?? 0
         isError = false
+        refreshSearch()
 
         let meta = JSONParser.rootDescription(of: unwrappedValue)
         if isEscapedText {
@@ -403,6 +506,7 @@ final class JSONParserViewModel: ObservableObject {
         metaMessage = message
         isError = true
         deepestLevel = 0
+        refreshSearch()
     }
 
     private func showHistoryError(_ error: Error) {
