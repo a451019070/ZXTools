@@ -302,9 +302,9 @@ final class ImageCompressViewModel: ObservableObject {
             KeychainStore.delete(account: Self.keychainAccount)
             setKeyMessage("已清除 API Key", isError: false)
         } else if KeychainStore.save(trimmed, account: Self.keychainAccount) {
-            setKeyMessage("已保存到钥匙串", isError: false)
+            setKeyMessage("已保存到\(KeychainStore.storageName)", isError: false)
         } else {
-            setKeyMessage("保存到钥匙串失败", isError: true)
+            setKeyMessage("保存到\(KeychainStore.storageName)失败", isError: true)
         }
     }
 
@@ -323,8 +323,13 @@ final class ImageCompressViewModel: ObservableObject {
             do {
                 let count = try await TinyPNGClient(apiKey: trimmed).validate()
                 if let count { compressionCount = count }
-                KeychainStore.save(trimmed, account: Self.keychainAccount)
-                setKeyMessage("API Key 有效，已保存到钥匙串", isError: false)
+                let saved = KeychainStore.save(trimmed, account: Self.keychainAccount)
+                setKeyMessage(
+                    saved
+                        ? "API Key 有效，已保存到\(KeychainStore.storageName)"
+                        : "API Key 有效，但保存到\(KeychainStore.storageName)失败",
+                    isError: !saved
+                )
             } catch {
                 setKeyMessage(error.localizedDescription, isError: true)
             }

@@ -165,7 +165,7 @@ struct ImageCompressView: View {
                         .foregroundStyle(viewModel.keyMessageIsError ? Color.red : Color.secondaryGreen)
                 }
 
-                Text("Key 保存在系统钥匙串中。压缩时图片会上传到 TinyPNG 服务器处理，请勿用于敏感图片。")
+                Text("Key 保存在\(KeychainStore.isSigned ? "系统钥匙串" : "本地偏好设置（当前应用未签名）")中。压缩时图片会上传到 TinyPNG 服务器处理，请勿用于敏感图片。")
                     .font(.system(size: 10))
                     .foregroundStyle(Color.slate400)
             }
