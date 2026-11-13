@@ -53,6 +53,7 @@ struct JSONTreeRow: Identifiable {
     let kind: Kind
     let value: JSONValue
     let hasComma: Bool
+    var arrayIndex: Int? = nil
 }
 
 enum JSONTreeFlattener {
@@ -66,6 +67,7 @@ enum JSONTreeFlattener {
 
     private static func append(value: JSONValue,
                                label: String?,
+                               arrayIndex: Int? = nil,
                                path: String,
                                depth: Int,
                                hasComma: Bool,
@@ -87,14 +89,15 @@ enum JSONTreeFlattener {
             summary = "\(items.count) 项"
         default:
             rows.append(JSONTreeRow(id: path, line: line, depth: depth, path: path, label: label,
-                                    kind: .leaf, value: value, hasComma: hasComma))
+                                    kind: .leaf, value: value, hasComma: hasComma, arrayIndex: arrayIndex))
             line += 1
             return
         }
 
         if children.isEmpty {
             rows.append(JSONTreeRow(id: path, line: line, depth: depth, path: path, label: label,
-                                    kind: .empty(isArray: isArray), value: value, hasComma: hasComma))
+                                    kind: .empty(isArray: isArray), value: value, hasComma: hasComma,
+                                    arrayIndex: arrayIndex))
             line += 1
             return
         }
@@ -103,19 +106,21 @@ enum JSONTreeFlattener {
         guard isOpen else {
             rows.append(JSONTreeRow(id: path, line: line, depth: depth, path: path, label: label,
                                     kind: .collapsed(isArray: isArray, summary: summary),
-                                    value: value, hasComma: hasComma))
+                                    value: value, hasComma: hasComma, arrayIndex: arrayIndex))
             line += value.lineCount
             return
         }
 
         rows.append(JSONTreeRow(id: path, line: line, depth: depth, path: path, label: label,
-                                kind: .open(isArray: isArray), value: value, hasComma: false))
+                                kind: .open(isArray: isArray), value: value, hasComma: false,
+                                arrayIndex: arrayIndex))
         line += 1
 
         let prefix = isArray ? "a" : "o"
         for (idx, child) in children.enumerated() {
             append(value: child.value,
                    label: child.label,
+                   arrayIndex: isArray ? idx : nil,
                    path: "\(path).\(prefix)\(idx)",
                    depth: depth + 1,
                    hasComma: idx < children.count - 1,
@@ -223,7 +228,7 @@ struct JSONTreeRowView: View {
     private var content: some View {
         if case .leaf = row.kind, case .string(let s) = row.value, isImageURLString(s) {
             HStack(alignment: .firstTextBaseline, spacing: 0) {
-                if row.label != nil {
+                if row.label != nil || row.arrayIndex != nil {
                     Text(keyPrefix)
                 }
                 ImageLeaf(urlString: s, hasComma: row.hasComma, query: query, isCurrentMatch: isCurrentMatch)
@@ -236,6 +241,9 @@ struct JSONTreeRowView: View {
     }
 
     private var keyPrefix: AttributedString {
+        if row.label == nil, let idx = row.arrayIndex {
+            return styled("\(idx)", color: .slate400, size: 11) + styled(": ", color: .slate500)
+        }
         guard let label = row.label else { return AttributedString() }
         return styled("\"\(label)\"", color: Self.keyColor, highlight: true) + styled(": ", color: .slate500)
     }
